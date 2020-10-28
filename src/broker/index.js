@@ -31,7 +31,9 @@ class Broker {
    * @param {Object} [options.connection] an optional connection object with the
    * `host`, `user`, `password` and `retry` to connect to the RabbitMQ instance.
    * @param {Object} [options.exchange] an optional object with the options
-   * for the exchange. 
+   * for the exchange.
+   * @param {Object} [options.exchangeType] an required object with the options
+   * for the exchange type [direct, topic, headers or fanout ].  
    */
   constructor(exchange, options = {}) {
     this.options = options
@@ -40,21 +42,28 @@ class Broker {
       user: BROKER_USER,
       password: BROKER_PASSWORD,
       retry: BROKER_RETRY_CONNECTION === 'true',
+      ssl: options.ssl || false,
       ...(options.connection || {})
     }
 
-    if (!exchange) {
-      throw new Error('Please provide an "exchange".')
+
+    if (typeof exchange != 'string' ) {
+      throw new Error('Please provide an "exchange" "string".')
     }
 
     if (!this.options.connection.host) {
       throw new Error('No "host" provided in the connection object and there is no BROKER_HOST env variable.')
     }
 
+    if(exchange !== "" && !this.options.exchangeType){
+      throw new Error('Please provide an "exchangeType" options are: direct, topic, headers or fanout.')
+    }
+
     this.exchange = exchange
     this.connection = null
     this.channel = null
     this.connected = false
+    this.exchangeType = this.options.exchangeType || "direct"
   }
 
   /**
@@ -65,9 +74,8 @@ class Broker {
   async connect() {
     if (this.connected) return Promise.resolve()
 
-    const { host, user, password } = this.options.connection
-    const connectionString = `amqp://${user && password ? `${user}:${password}` : ''}@${host}`
-
+    const { host, user, password, ssl } = this.options.connection
+    const connectionString = `amqp${ssl ? 's': ''}://${user && password ? `${user}:${password}` : ''}@${host}`
     return amqp.connect(connectionString).then(async connection => {
       this.connection = connection
 
@@ -85,7 +93,9 @@ class Broker {
         this.connect()
       })
 
-      this.channel.assertExchange(this.exchange, 'topic', this.options.exchange)
+      if(this.exchange !== ''){
+        this.channel.assertExchange(this.exchange, this.exchangeType, this.options.exchange)
+      }
       this.connected = true
     }).catch((error) => {
       if (!this.options.connection.retry) throw error;
